@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transverse-Field Ising Chain</title>
+  <meta name="description" content="Exact diagonalization of the 1D quantum Ising chain in the browser: drag the transverse field and watch the quantum phase transition.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Transverse-field Ising chain</h1>
+      <p class="sub">
+        <span class="ham">H = −J Σ σᶻᵢσᶻᵢ₊₁ − h Σ σˣᵢ</span>
+        &nbsp;·&nbsp; exact ground state by matrix-free Lanczos, computed live in your browser.
+        Drag <b>h/J</b> across 1 to see the quantum phase transition.
+      </p>
+    </header>
+
+    <section class="controls">
+      <label class="ctl wide">
+        <span class="name">h / J <output id="hOut">0.50</output></span>
+        <input id="hSlider" type="range" min="0" max="2" step="0.01" value="0.5">
+        <span class="ticks"><i>ordered</i><i>critical</i><i>disordered</i></span>
+      </label>
+      <label class="ctl">
+        <span class="name">Spins N <output id="nOut">12</output></span>
+        <input id="nSlider" type="range" min="4" max="16" step="1" value="12">
+      </label>
+      <label class="ctl">
+        <span class="name">Boundary</span>
+        <select id="bcSelect">
+          <option value="periodic" selected>Periodic (ring)</option>
+          <option value="open">Open (edges)</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="card">
+      <div class="phase-row">
+        <span id="phase" class="phase">…</span>
+        <span id="status" class="status">starting…</span>
+      </div>
+      <canvas id="chain" class="chain" aria-label="Spin expectation values along the chain"></canvas>
+      <p class="legend">
+        Each arrow is the local spin expectation (⟨σˣ⟩, ⟨σᶻ⟩): it points <b class="up">up</b> in the ordered phase
+        and tilts toward <b class="right">the field direction</b> as h grows.
+      </p>
+    </section>
+
+    <section class="readout">
+      <div><span>E₀</span><b id="rE0">–</b></div>
+      <div><span>E₀ / N</span><b id="rEN">–</b></div>
+      <div><span>gap E₁ − E₀</span><b id="rGap">–</b></div>
+      <div><span>m²</span><b id="rM2">–</b></div>
+      <div><span>⟨σˣ⟩</span><b id="rSx">–</b></div>
+    </section>
+
+    <section class="grid">
+      <figure class="card"><canvas id="chartM" class="chart"></canvas></figure>
+      <figure class="card"><canvas id="chartGap" class="chart"></canvas></figure>
+      <figure class="card"><canvas id="chartE" class="chart"></canvas></figure>
+      <figure class="card"><canvas id="chartX" class="chart"></canvas></figure>
+    </section>
+
+    <details class="card notes">
+      <summary>What am I looking at?</summary>
+      <p><b>Method.</b> The Hamiltonian acts on 2<sup>N</sup> basis states but is never stored as a matrix:
+        its action on a vector is applied directly with bit operations. The lowest eigenstates come from the
+        Lanczos algorithm. H commutes with the global spin flip Πσˣ, so the even and odd parity sectors are solved
+        separately: the ground state is the lowest even state, and the lowest odd state gives the gap.</p>
+      <p><b>Phase transition.</b> For h &lt; J the chain is ferromagnetic and the two lowest states become
+        degenerate (the gap closes exponentially in N). For h &gt; J the field wins and the spins align along x.
+        The critical point is at h = J; on a finite chain the transition is rounded, and it sharpens as you
+        increase N.</p>
+      <p><b>Why symmetry breaking is simulated.</b> In a finite chain the exact ground state is symmetric under
+        the spin flip, so ⟨σᶻᵢ⟩ is exactly 0. The arrows therefore show the state (ψ<sub>even</sub> + ψ<sub>odd</sub>)/√2,
+        which is the symmetry-broken ground state when the gap is tiny. The order parameter plotted in the charts,
+        m² = ⟨(Σσᶻ)²⟩/N², is well defined for the exact ground state. A small residual arrow length in the
+        disordered phase is a finite-size effect that shrinks as N grows.</p>
+      <p><b>Plots.</b> The curves are computed for the current N and boundary condition (the sweep fills in
+        progressively); the dot is the live value at your slider position.</p>
+    </details>
+
+    <footer>
+      Built with plain JavaScript (ES modules + a Web Worker), no dependencies.
+    </footer>
+  </main>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "ising-chain",
+  "version": "1.0.0",
+  "description": "Exact diagonalization of the 1D transverse-field Ising chain, running in the browser",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/run.js",
+    "start": "python3 -m http.server 8000"
+  },
+  "license": "MIT"
+}
