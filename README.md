@@ -15,8 +15,9 @@ parameter and per-site spin expectation values, for chains of up to 16 spins (65
 ## What you see
 
 - **Chain of arrows:** the local spin expectation (⟨σˣᵢ⟩, ⟨σᶻᵢ⟩). Up = ordered, tilted toward x = driven by the field.
-- **Low-lying spectrum:** the lowest levels of the even (solid) and odd (dashed) parity sectors, measured from
-  the ground state, versus h/J. The lowest odd level merges with the ground state in the ordered phase.
+- **Low-lying spectrum:** the lowest absolute energy levels of the even (solid) and odd (dashed) parity sectors
+  versus h/J, with the ground state as a thick curve. The lowest odd level lies on the ground state in the
+  ordered phase (two degenerate ground states) and separates from it in the disordered phase.
 - **Order parameter** m² = ⟨(Σσᶻ)²⟩/N² versus h/J.
 - **Two-spin correlation** C(r) = ⟨σᶻᵢσᶻᵢ₊ᵣ⟩ versus distance r, recomputed live for the current h, N and boundary.
 - **Sliders:** h/J moves the transition; N (4–16 spins) shows finite-size rounding; a toggle switches between a
@@ -39,7 +40,7 @@ Each parity sector is run through Lanczos until the lowest three Ritz pairs have
 without re-orthogonalization produces "ghost" copies of converged eigenvalues, so Ritz values closer than the sum
 of their residual bounds are merged into one level. A single start vector sees each distinct eigenvalue once, so
 degenerate levels (±k momentum pairs on a ring) appear once. The sweep over h runs coarse-first so a rough curve
-shows up immediately. The spectrum curves start at h = 0.05, because h = 0 is the degenerate classical limit.
+shows up immediately. The excited-level curves start at h = 0.05, because h = 0 is the degenerate classical limit.
 
 ### Correlations
 
