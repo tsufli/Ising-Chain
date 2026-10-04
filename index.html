@@ -49,19 +49,10 @@
       </p>
     </section>
 
-    <section class="readout">
-      <div><span>E₀</span><b id="rE0">–</b></div>
-      <div><span>E₀ / N</span><b id="rEN">–</b></div>
-      <div><span>gap E₁ − E₀</span><b id="rGap">–</b></div>
-      <div><span>m²</span><b id="rM2">–</b></div>
-      <div><span>⟨σˣ⟩</span><b id="rSx">–</b></div>
-    </section>
-
     <section class="grid">
-      <figure class="card"><canvas id="chartM" class="chart"></canvas></figure>
-      <figure class="card"><canvas id="chartGap" class="chart"></canvas></figure>
-      <figure class="card"><canvas id="chartE" class="chart"></canvas></figure>
-      <figure class="card"><canvas id="chartX" class="chart"></canvas></figure>
+      <figure class="card"><canvas id="chartSpec" class="chart" aria-label="Low-lying energy spectrum versus h"></canvas></figure>
+      <figure class="card"><canvas id="chartM" class="chart" aria-label="Order parameter versus h"></canvas></figure>
+      <figure class="card"><canvas id="chartC" class="chart" aria-label="Two-spin correlation function versus distance"></canvas></figure>
     </section>
 
     <details class="card notes">
@@ -79,8 +70,16 @@
         which is the symmetry-broken ground state when the gap is tiny. The order parameter plotted in the charts,
         m² = ⟨(Σσᶻ)²⟩/N², is well defined for the exact ground state. A small residual arrow length in the
         disordered phase is a finite-size effect that shrinks as N grows.</p>
-      <p><b>Plots.</b> The curves are computed for the current N and boundary condition (the sweep fills in
-        progressively); the dot is the live value at your slider position.</p>
+      <p><b>Spectrum.</b> The lowest levels of the even (solid) and odd (dashed) parity sectors, measured from the
+        ground state, as a function of h. In the ordered phase the lowest odd level merges with the ground state
+        (the two symmetry-broken states become degenerate); at h = J the gap is smallest relative to its
+        thermodynamic-limit value and then reopens linearly in the paramagnet. Degenerate levels, such as the ±k
+        momentum pairs on a ring, are drawn once.</p>
+      <p><b>Correlations.</b> C(r) = ⟨σᶻᵢσᶻᵢ₊ᵣ⟩ in the exact ground state, averaged over i, for the current h, N and
+        boundary. It stays close to m² at large r in the ordered phase (long-range order) and decays quickly in the
+        disordered phase. Since ⟨σᶻ⟩ = 0 in the symmetric ground state, this is also the connected correlator.</p>
+      <p><b>Curves.</b> The spectrum and order-parameter curves are computed for the current N and boundary condition
+        (the sweep fills in progressively, coarse first); the dots and vertical line mark your slider position.</p>
     </details>
 
     <footer>

@@ -1,4 +1,4 @@
-// UI: sliders -> worker -> arrows + charts. No dependencies.
+// UI: sliders -> worker -> arrow chain + three plots. No dependencies.
 
 const $ = (id) => document.getElementById(id);
 const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
@@ -6,9 +6,20 @@ const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'modu
 const H_GRID = Array.from({ length: 41 }, (_, i) => +(i * 0.05).toFixed(2)); // 0 … 2
 const state = { N: 12, h: 0.5, periodic: true };
 
+// Sweep order: coarse first (ends, middle, quarters, …) so a rough curve appears
+// almost immediately and then fills in.
+const SWEEP_ORDER = (() => {
+  const seen = new Set();
+  const order = [];
+  for (const step of [40, 20, 10, 5, 1]) {
+    for (let i = 0; i < H_GRID.length; i += step) if (!seen.has(i)) { seen.add(i); order.push(i); }
+  }
+  return order;
+})();
+
 // ---------- worker plumbing ----------------------------------------------
 
-const sweeps = new Map();       // "12p" -> { E0perSite:[], m2:[], gap:[], sx:[], count, done }
+const sweeps = new Map();       // "12p" -> { data: [sweepPoint | null …], count, done }
 const sweepOwner = new Map();   // request id -> cache key
 let sweepSeq = 0;
 let solveSeq = 0;
@@ -32,18 +43,13 @@ function requestSweep() {
   const key = currentKey();
   const hit = sweeps.get(key);
   if (hit && hit.done) return;
-  const entry = {
-    E0perSite: new Array(H_GRID.length).fill(null),
-    m2: new Array(H_GRID.length).fill(null),
-    gap: new Array(H_GRID.length).fill(null),
-    sx: new Array(H_GRID.length).fill(null),
-    count: 0,
-    done: false,
-  };
-  sweeps.set(key, entry);
+  sweeps.set(key, { data: new Array(H_GRID.length).fill(null), count: 0, done: false });
   const id = ++sweepSeq;
   sweepOwner.set(id, key);
-  worker.postMessage({ type: 'sweep', id, N: state.N, periodic: state.periodic, hs: H_GRID });
+  worker.postMessage({
+    type: 'sweep', id, N: state.N, periodic: state.periodic,
+    hs: SWEEP_ORDER.map((i) => H_GRID[i]), idx: SWEEP_ORDER,
+  });
 }
 
 worker.onmessage = (e) => {
@@ -59,12 +65,8 @@ worker.onmessage = (e) => {
   } else if (msg.type === 'sweep') {
     const entry = sweeps.get(sweepOwner.get(msg.id));
     if (!entry) return;
-    const r = msg.res;
-    entry.E0perSite[msg.i] = r.E0perSite;
-    entry.m2[msg.i] = r.m2;
-    entry.gap[msg.i] = r.gap;
-    entry.sx[msg.i] = r.sx;
-    entry.count = entry.m2.filter((v) => v != null).length;
+    entry.data[msg.i] = msg.res;
+    entry.count++;
     if (sweepOwner.get(msg.id) === currentKey()) drawCharts();
     updateStatus();
   } else if (msg.type === 'sweepDone') {
@@ -166,85 +168,231 @@ function drawChain() {
   ctx.fillText(state.periodic ? 'periodic ring' : 'open chain', w - 8, 16);
 }
 
-// ---------- charts ---------------------------------------------------------
+// ---------- shared plot frame ----------------------------------------------
 
-const CHARTS = [
-  { id: 'chartM',   key: 'm2',        title: 'Order parameter  m² = ⟨(Σσᶻ)²⟩ / N²', y: [0, 1],    fmt: (v) => v.toFixed(2) },
-  { id: 'chartGap', key: 'gap',       title: 'Energy gap  E₁ − E₀',                  y: [0, null], fmt: (v) => v.toFixed(2) },
-  { id: 'chartE',   key: 'E0perSite', title: 'Ground-state energy per site  E₀ / N', y: [null, null], fmt: (v) => v.toFixed(2) },
-  { id: 'chartX',   key: 'sx',        title: 'Transverse magnetization  ⟨σˣ⟩',       y: [0, 1],    fmt: (v) => v.toFixed(2) },
-];
+const PAD = { L: 46, R: 14, T: 30, B: 32 };
 
-function drawChart(cfg) {
-  const { ctx, w, h } = prepare($(cfg.id));
-  const L = 44, R = 14, T = 28, B = 30;
-  const entry = sweeps.get(currentKey());
-  const ys = entry ? entry[cfg.key] : [];
-  const pts = [];
-  H_GRID.forEach((x, i) => { if (ys[i] != null && Number.isFinite(ys[i])) pts.push([x, ys[i]]); });
+/** Draws title, grid, tick labels; returns coordinate maps X(), Y(). */
+function frame(canvas, { title, y, x, xLabel }) {
+  const { ctx, w, h } = prepare(canvas);
+  const { L, R, T, B } = PAD;
+  const X = (v) => L + ((v - x.lo) / (x.hi - x.lo)) * (w - L - R);
+  const Y = (v) => T + (1 - (v - y.lo) / (y.hi - y.lo)) * (h - T - B);
 
-  let lo = cfg.y[0], hi = cfg.y[1];
-  const vals = pts.map((p) => p[1]);
-  if (live && live.N === state.N) vals.push(live[cfg.key]);
-  if (lo == null) lo = vals.length ? Math.min(...vals) : 0;
-  if (hi == null) hi = vals.length ? Math.max(...vals) : 1;
-  if (cfg.y[0] == null || cfg.y[1] == null) {
-    const pad = (hi - lo) * 0.08 || 0.1;
-    if (cfg.y[0] == null) lo -= pad;
-    if (cfg.y[1] == null) hi += pad;
-  }
-  if (hi - lo < 1e-9) hi = lo + 1;
-
-  const X = (x) => L + (x / 2) * (w - L - R);
-  const Y = (y) => T + (1 - (y - lo) / (hi - lo)) * (h - T - B);
-
-  ctx.font = '11px system-ui, sans-serif';
   ctx.fillStyle = css('--text'); ctx.textAlign = 'left';
   ctx.font = '600 12px system-ui, sans-serif';
-  ctx.fillText(cfg.title, L - 30, 16);
-  ctx.font = '11px system-ui, sans-serif';
+  ctx.fillText(title, 12, 16);
 
-  // grid + y labels
-  ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1; ctx.fillStyle = css('--muted'); ctx.textAlign = 'right';
-  for (let k = 0; k <= 4; k++) {
-    const v = lo + ((hi - lo) * k) / 4;
-    const y = Math.round(Y(v)) + 0.5;
-    ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(w - R, y); ctx.stroke();
-    ctx.fillText(cfg.fmt(v), L - 6, y + 4);
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1; ctx.fillStyle = css('--muted');
+  ctx.textAlign = 'right';
+  for (const v of y.ticks) {
+    const py = Math.round(Y(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(L, py); ctx.lineTo(w - R, py); ctx.stroke();
+    ctx.fillText(y.fmt(v), L - 6, py + 4);
   }
   ctx.textAlign = 'center';
-  for (const x of [0, 0.5, 1, 1.5, 2]) {
-    const px = Math.round(X(x)) + 0.5;
+  for (const v of x.ticks) {
+    const px = Math.round(X(v)) + 0.5;
     ctx.beginPath(); ctx.moveTo(px, T); ctx.lineTo(px, h - B); ctx.stroke();
-    ctx.fillText(String(x), px, h - B + 14);
+    ctx.fillText(String(v), px, h - B + 14);
   }
-  ctx.fillText('h / J', (L + w - R) / 2, h - 4);
+  ctx.fillText(xLabel, (L + w - R) / 2, h - 4);
+  return { ctx, w, h, X, Y };
+}
 
-  // critical line h = J
+const H_AXIS = { lo: 0, hi: 2, ticks: [0, 0.5, 1, 1.5, 2] };
+
+/** Dashed critical line at h = J and the live slider marker. */
+function hMarkers({ ctx, X, h }) {
+  const { T, B } = PAD;
   ctx.strokeStyle = css('--crit'); ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(X(1), T); ctx.lineTo(X(1), h - B); ctx.stroke();
   ctx.setLineDash([]);
-
-  // curve
-  if (pts.length > 1) {
-    ctx.strokeStyle = css('--curve'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
-    ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
-    ctx.stroke();
-  }
-
-  // slider marker + live dot
   ctx.strokeStyle = css('--accent'); ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.moveTo(X(state.h), T); ctx.lineTo(X(state.h), h - B); ctx.stroke();
-  if (live && live.N === state.N && live.periodic === state.periodic) {
-    ctx.fillStyle = css('--accent');
-    ctx.beginPath(); ctx.arc(X(state.h), Y(live[cfg.key]), 4.5, 0, 2 * Math.PI); ctx.fill();
-  }
 }
 
-function drawCharts() { CHARTS.forEach(drawChart); }
+function emptyNote({ ctx, w, h }, text) {
+  ctx.fillStyle = css('--muted'); ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(text, (PAD.L + w - PAD.R) / 2, h / 2);
+}
 
-// ---------- readout + render -----------------------------------------------
+const liveOk = () => live && live.N === state.N && live.periodic === state.periodic;
+const sweepData = () => (sweeps.get(currentKey()) || { data: [] }).data;
+
+/** Polyline through (h, value) points, breaking the line where a value is missing. */
+function polyline(ctx, X, Y, pts) {
+  ctx.beginPath();
+  let pen = false;
+  for (const p of pts) {
+    if (p == null) { pen = false; continue; }
+    if (pen) ctx.lineTo(X(p[0]), Y(p[1])); else ctx.moveTo(X(p[0]), Y(p[1]));
+    pen = true;
+  }
+  ctx.stroke();
+}
+
+/** Linear interpolation of sorted (x, y) points at x; null if x is outside the data. */
+function interpAt(pts, x) {
+  const p = pts.filter((q) => q != null);
+  if (p.length && x < p[0][0] && p[0][0] <= 0.05 + 1e-9) return p[0][1]; // curve starts at h = 0.05
+  for (let i = 0; i + 1 < p.length; i++) {
+    if (x >= p[i][0] - 1e-9 && x <= p[i + 1][0] + 1e-9) {
+      const t = p[i + 1][0] === p[i][0] ? 0 : (x - p[i][0]) / (p[i + 1][0] - p[i][0]);
+      return p[i][1] + t * (p[i + 1][1] - p[i][1]);
+    }
+  }
+  return null;
+}
+
+function niceTicks(max) {
+  const rough = Math.max(max, 1e-9) / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rough);
+  const ticks = [];
+  for (let v = 0; v < max + step * 0.999; v += step) ticks.push(+v.toFixed(10));
+  return ticks;
+}
+
+// ---------- plot 1: low-lying spectrum ---------------------------------------
+
+const SPEC_SERIES = [
+  { sector: 'even', k: 1, color: '--even', dash: [] },
+  { sector: 'even', k: 2, color: '--even', dash: [] },
+  { sector: 'odd', k: 0, color: '--odd', dash: [6, 4] },
+  { sector: 'odd', k: 1, color: '--odd', dash: [6, 4] },
+  { sector: 'odd', k: 2, color: '--odd', dash: [6, 4] },
+];
+
+function drawSpectrum() {
+  const data = sweepData();
+  const series = SPEC_SERIES.map((s) =>
+    H_GRID.map((hv, i) => {
+      // h = 0 is the degenerate classical limit where each band of near-degenerate
+      // levels collapses to one value, so the spectrum curves start at h = 0.05.
+      if (i === 0) return null;
+      const v = data[i] && data[i][s.sector][s.k];
+      return v == null ? null : [hv, Math.max(0, v)];
+    }));
+
+  let max = 0;
+  for (const pts of series) for (const p of pts) if (p) max = Math.max(max, p[1]);
+  const ticks = niceTicks(max || 4);
+  const top = ticks[ticks.length - 1];
+
+  const f = frame($('chartSpec'), {
+    title: 'Low-lying spectrum  E − E₀',
+    y: { lo: -0.05 * top, hi: top, ticks, fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)) },
+    x: H_AXIS,
+    xLabel: 'h / J',
+  });
+  const { ctx, X, Y, w } = f;
+
+  // ground state = zero line
+  ctx.strokeStyle = css('--muted'); ctx.lineWidth = 1.5; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(2), Y(0)); ctx.stroke();
+
+  hMarkers(f);
+
+  ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  SPEC_SERIES.forEach((s, i) => {
+    ctx.strokeStyle = css(s.color);
+    ctx.setLineDash(s.dash);
+    polyline(ctx, X, Y, series[i]);
+  });
+  ctx.setLineDash([]);
+
+  // dots at the slider position
+  SPEC_SERIES.forEach((s, i) => {
+    const v = interpAt(series[i], state.h);
+    if (v == null) return;
+    ctx.fillStyle = css(s.color);
+    ctx.beginPath(); ctx.arc(X(state.h), Y(v), 3.5, 0, 2 * Math.PI); ctx.fill();
+  });
+
+  // legend
+  ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = css('--muted');
+  const lx = w - PAD.R;
+  ctx.fillText('odd', lx, 16);
+  ctx.strokeStyle = css('--odd'); ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+  ctx.beginPath(); ctx.moveTo(lx - 56, 12); ctx.lineTo(lx - 30, 12); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillText('even', lx - 66, 16);
+  ctx.strokeStyle = css('--even');
+  ctx.beginPath(); ctx.moveTo(lx - 124, 12); ctx.lineTo(lx - 98, 12); ctx.stroke();
+
+  if (!data.some(Boolean)) emptyNote(f, 'computing…');
+}
+
+// ---------- plot 2: order parameter m² ---------------------------------------
+
+function drawOrder() {
+  const data = sweepData();
+  const pts = H_GRID.map((hv, i) => (data[i] ? [hv, data[i].m2] : null));
+  const f = frame($('chartM'), {
+    title: 'Order parameter  m² = ⟨(Σσᶻ)²⟩ / N²',
+    y: { lo: 0, hi: 1, ticks: [0, 0.25, 0.5, 0.75, 1], fmt: (v) => v.toFixed(2) },
+    x: H_AXIS,
+    xLabel: 'h / J',
+  });
+  const { ctx, X, Y } = f;
+  hMarkers(f);
+  ctx.strokeStyle = css('--curve'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.setLineDash([]);
+  polyline(ctx, X, Y, pts);
+  if (liveOk()) {
+    ctx.fillStyle = css('--accent');
+    ctx.beginPath(); ctx.arc(X(state.h), Y(live.m2), 4.5, 0, 2 * Math.PI); ctx.fill();
+  }
+  if (!data.some(Boolean)) emptyNote(f, 'computing…');
+}
+
+// ---------- plot 3: correlation function C(r) --------------------------------
+
+function drawCorr() {
+  const ok = liveOk() && live.corr;
+  const rmax = state.N >> 1;
+  const C = ok ? Array.from(live.corr).slice(1) : [];
+
+  const minC = C.length ? Math.min(...C) : 0;
+  const lo = Math.min(0, Math.floor(minC * 4) / 4);
+  const ticks = [];
+  for (let v = lo; v <= 1 + 1e-9; v += 0.25) ticks.push(+v.toFixed(2));
+  const f = frame($('chartC'), {
+    title: 'Correlation  C(r) = ⟨σᶻᵢ σᶻᵢ₊ᵣ⟩',
+    y: { lo: lo - 0.06, hi: 1.14, ticks, fmt: (v) => v.toFixed(2) },
+    x: { lo: 0.5, hi: rmax + 0.5, ticks: Array.from({ length: rmax }, (_, i) => i + 1) },
+    xLabel: 'distance r (sites)',
+  });
+  const { ctx, X, Y } = f;
+
+  ctx.strokeStyle = css('--muted'); ctx.lineWidth = 1; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(X(0.5), Y(0)); ctx.lineTo(X(rmax + 0.5), Y(0)); ctx.stroke();
+
+  if (!ok) { emptyNote(f, 'computing…'); return; }
+
+  const accent = css('--accent');
+  ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.35; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  C.forEach((c, i) => (i ? ctx.lineTo(X(i + 1), Y(c)) : ctx.moveTo(X(i + 1), Y(c))));
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'center';
+  C.forEach((c, i) => {
+    const px = X(i + 1), py = Y(c);
+    ctx.strokeStyle = accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, Y(0)); ctx.lineTo(px, py); ctx.stroke();
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.arc(px, py, 4.5, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = css('--muted');
+    ctx.fillText(c.toFixed(2), px, c >= 0 ? py - 9 : py + 16);
+  });
+}
+
+function drawCharts() { drawSpectrum(); drawOrder(); drawCorr(); }
+
+// ---------- status + render --------------------------------------------------
 
 function phaseLabel(h) {
   if (h < 0.9) return 'Ordered phase (h < J): ferromagnet';
@@ -254,21 +402,13 @@ function phaseLabel(h) {
 
 function updateStatus() {
   const entry = sweeps.get(currentKey());
-  const n = H_GRID.length;
-  const sweep = !entry ? '' : entry.done ? ' · curves complete' : ` · computing curves ${entry.count}/${n}`;
+  const sweep = !entry ? '' : entry.done ? ' · curves complete' : ` · computing curves ${entry.count}/${H_GRID.length}`;
   const t = live ? `solved in ${liveMs.toFixed(0)} ms` : 'solving…';
   $('status').textContent = `dim = 2^${state.N} = ${(1 << state.N).toLocaleString()} · ${t}${sweep}`;
 }
 
 function render() {
   $('phase').textContent = phaseLabel(state.h);
-  if (live) {
-    $('rE0').textContent = live.E0.toFixed(4);
-    $('rEN').textContent = live.E0perSite.toFixed(4);
-    $('rGap').textContent = live.gap < 1e-4 ? live.gap.toExponential(1) : live.gap.toFixed(4);
-    $('rM2').textContent = live.m2.toFixed(3);
-    $('rSx').textContent = live.sx.toFixed(3);
-  }
   drawChain();
   drawCharts();
   updateStatus();

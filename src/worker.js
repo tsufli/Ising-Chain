@@ -1,5 +1,5 @@
 // Web Worker: all heavy numerics live here so the sliders never block.
-import { solveChain } from './physics.js';
+import { solveChain, sweepPoint } from './physics.js';
 
 let latestSweep = 0;
 
@@ -8,14 +8,14 @@ self.onmessage = async (e) => {
   try {
     if (msg.type === 'solve') {
       const t0 = performance.now();
-      const res = solveChain({ N: msg.N, h: msg.h, periodic: msg.periodic, sites: true });
+      const res = solveChain({ N: msg.N, h: msg.h, periodic: msg.periodic, sites: true, corr: true });
       self.postMessage({ type: 'solve', id: msg.id, res, ms: performance.now() - t0 });
     } else if (msg.type === 'sweep') {
       latestSweep = msg.id;
-      for (let i = 0; i < msg.hs.length; i++) {
+      for (let k = 0; k < msg.hs.length; k++) {
         if (latestSweep !== msg.id) return; // superseded by a newer sweep
-        const res = solveChain({ N: msg.N, h: msg.hs[i], periodic: msg.periodic, sites: false });
-        self.postMessage({ type: 'sweep', id: msg.id, i, res });
+        const res = sweepPoint({ N: msg.N, h: msg.hs[k], periodic: msg.periodic });
+        self.postMessage({ type: 'sweep', id: msg.id, i: msg.idx[k], res });
         // yield so queued 'solve' messages (slider moves) get handled between points
         await new Promise((r) => setTimeout(r, 0));
       }

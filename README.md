@@ -15,10 +15,12 @@ parameter and per-site spin expectation values, for chains of up to 16 spins (65
 ## What you see
 
 - **Chain of arrows:** the local spin expectation (⟨σˣᵢ⟩, ⟨σᶻᵢ⟩). Up = ordered, tilted toward x = driven by the field.
-- **Four curves** with a marker at the slider position and a dashed line at the critical point h = J:
-  order parameter m², energy gap, ground-state energy per site, transverse magnetization ⟨σˣ⟩.
-- **N slider** to see finite-size rounding: the transition sharpens as N grows.
-- **Boundary toggle:** periodic ring or open chain (edge effects show up in the arrows).
+- **Low-lying spectrum:** the lowest levels of the even (solid) and odd (dashed) parity sectors, measured from
+  the ground state, versus h/J. The lowest odd level merges with the ground state in the ordered phase.
+- **Order parameter** m² = ⟨(Σσᶻ)²⟩/N² versus h/J.
+- **Two-spin correlation** C(r) = ⟨σᶻᵢσᶻᵢ₊ᵣ⟩ versus distance r, recomputed live for the current h, N and boundary.
+- **Sliders:** h/J moves the transition; N (4–16 spins) shows finite-size rounding; a toggle switches between a
+  periodic ring and an open chain. The curves have a dashed line at h = J and a marker at the slider position.
 
 ## Method
 
@@ -30,6 +32,20 @@ parameter and per-site spin expectation values, for chains of up to 16 spins (65
   pass 2 replays the recurrence to assemble the eigenvector. Only four state vectors are in memory at once.
 - **Web Worker.** All numerics run off the main thread. The sliders stay responsive, and the curves are
   filled in progressively with a cancellable sweep.
+
+### Spectrum
+
+Each parity sector is run through Lanczos until the lowest three Ritz pairs have residual < 1e‑6. Plain Lanczos
+without re-orthogonalization produces "ghost" copies of converged eigenvalues, so Ritz values closer than the sum
+of their residual bounds are merged into one level. A single start vector sees each distinct eigenvalue once, so
+degenerate levels (±k momentum pairs on a ring) appear once. The sweep over h runs coarse-first so a rough curve
+shows up immediately. The spectrum curves start at h = 0.05, because h = 0 is the degenerate classical limit.
+
+### Correlations
+
+C(r) is evaluated directly from the ground-state amplitudes, `Σₛ |ψ(s)|² (N − 2·popcount(s ⊕ rot_r(s)))/N`
+(periodic) or the analogous open-chain average over the N − r pairs that fit. In the symmetric ground state
+⟨σᶻ⟩ = 0, so this is also the connected correlator.
 
 ### Observables
 
@@ -49,6 +65,9 @@ parameter and per-site spin expectation values, for chains of up to 16 spins (65
 - Lanczos vs. a dense Jacobi diagonalization for N = 4–7, both boundary conditions: ground-state energy,
   lowest odd-sector energy, m², ⟨σˣ⟩ and per-site ⟨σᶻ⟩
 - eigen-residuals ‖Hψ − Eψ‖ at N = 12
+- the tridiagonal QL eigen-solver against Jacobi
+- the lowest three distinct levels of each parity sector against dense diagonalization (N = 6, 7; both boundaries)
+- C(r) against dense diagonalization, plus the limits h = 0 (C = 1 for all r) and J = 0 (C = 0 for r ≥ 1)
 - translation invariance of the periodic chain
 - qualitative phase-transition signatures (m² and gap trends)
 
@@ -78,14 +97,14 @@ on every push to `main`.
 index.html, style.css      page
 src/main.js                UI: sliders, arrow chain, charts
 src/worker.js              Web Worker wrapper
-src/physics.js             H·v, parity-sector Lanczos, observables
-src/linalg.js              small Jacobi eigensolver
+src/physics.js             H·v, parity-sector Lanczos, spectrum, observables, C(r)
+src/linalg.js              Jacobi and tridiagonal eigen-solvers
 test/run.js                tests
 .github/workflows/pages.yml  test + deploy
 ```
 
 ## Possible extensions
 
-- Correlation function ⟨σᶻᵢσᶻᵢ₊ᵣ⟩ and correlation length near h = J
+- Correlation length ξ(h) extracted from C(r), and a log-scale view of C(r)
 - Larger N (18+) with translation-symmetry sectors
 - Quench dynamics: time evolution after a sudden change of h
