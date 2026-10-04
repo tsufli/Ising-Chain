@@ -246,58 +246,63 @@ function interpAt(pts, x) {
   return null;
 }
 
-function niceTicks(max) {
-  const rough = Math.max(max, 1e-9) / 4;
+/** "Nice" tick positions covering [lo, hi], plus the padded axis range. */
+function niceRange(lo, hi) {
+  if (!(hi - lo >= 1e-3)) { const c = (lo + hi) / 2; lo = c - 0.5; hi = c + 0.5; } // degenerate range
+  const span = hi - lo;
+  const rough = span / 4;
   const mag = Math.pow(10, Math.floor(Math.log10(rough)));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rough);
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((v) => v >= rough);
+  const start = Math.floor(lo / step + 1e-9) * step;
+  const end = Math.ceil(hi / step - 1e-9) * step;
   const ticks = [];
-  for (let v = 0; v < max + step * 0.999; v += step) ticks.push(+v.toFixed(10));
-  return ticks;
+  for (let v = start; v <= end + step * 1e-6 && ticks.length < 50; v += step) ticks.push(+v.toFixed(10));
+  const pad = 0.03 * (end - start || 1);
+  return { ticks, lo: start - pad, hi: end + pad };
 }
 
-// ---------- plot 1: low-lying spectrum ---------------------------------------
+// ---------- plot 1: low-lying spectrum (absolute energies) ---------------------
 
 const SPEC_SERIES = [
-  { sector: 'even', k: 1, color: '--even', dash: [] },
-  { sector: 'even', k: 2, color: '--even', dash: [] },
-  { sector: 'odd', k: 0, color: '--odd', dash: [6, 4] },
-  { sector: 'odd', k: 1, color: '--odd', dash: [6, 4] },
-  { sector: 'odd', k: 2, color: '--odd', dash: [6, 4] },
+  { sector: 'even', k: 0, color: '--curve', dash: [], width: 2.5, fromZero: true, ground: true },
+  { sector: 'even', k: 1, color: '--even', dash: [], width: 2 },
+  { sector: 'even', k: 2, color: '--even', dash: [], width: 2 },
+  { sector: 'odd', k: 0, color: '--odd', dash: [6, 4], width: 2, fromZero: true },
+  { sector: 'odd', k: 1, color: '--odd', dash: [6, 4], width: 2 },
+  { sector: 'odd', k: 2, color: '--odd', dash: [6, 4], width: 2 },
 ];
 
 function drawSpectrum() {
   const data = sweepData();
   const series = SPEC_SERIES.map((s) =>
     H_GRID.map((hv, i) => {
-      // h = 0 is the degenerate classical limit where each band of near-degenerate
-      // levels collapses to one value, so the spectrum curves start at h = 0.05.
-      if (i === 0) return null;
-      const v = data[i] && data[i][s.sector][s.k];
-      return v == null ? null : [hv, Math.max(0, v)];
+      // Excited levels start at h = 0.05: h = 0 is the degenerate classical limit,
+      // where each band of near-degenerate levels collapses to one value.
+      if (i === 0 && !s.fromZero) return null;
+      const d = data[i];
+      if (!d) return null;
+      const exc = d[s.sector][s.k];
+      return exc == null ? null : [hv, d.E0 + exc];
     }));
 
-  let max = 0;
-  for (const pts of series) for (const p of pts) if (p) max = Math.max(max, p[1]);
-  const ticks = niceTicks(max || 4);
-  const top = ticks[ticks.length - 1];
+  let lo = Infinity, hi = -Infinity;
+  for (const pts of series) for (const p of pts) if (p) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
+  if (!Number.isFinite(lo)) { lo = -1; hi = 1; }
+  const yr = niceRange(lo, hi);
 
   const f = frame($('chartSpec'), {
-    title: 'Low-lying spectrum  E − E₀',
-    y: { lo: -0.05 * top, hi: top, ticks, fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)) },
+    title: 'Low-lying spectrum  Eₙ',
+    y: { lo: yr.lo, hi: yr.hi, ticks: yr.ticks, fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)) },
     x: H_AXIS,
     xLabel: 'h / J',
   });
   const { ctx, X, Y, w } = f;
 
-  // ground state = zero line
-  ctx.strokeStyle = css('--muted'); ctx.lineWidth = 1.5; ctx.setLineDash([]);
-  ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(2), Y(0)); ctx.stroke();
-
   hMarkers(f);
 
-  ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.lineJoin = 'round';
   SPEC_SERIES.forEach((s, i) => {
-    ctx.strokeStyle = css(s.color);
+    ctx.strokeStyle = css(s.color); ctx.lineWidth = s.width;
     ctx.setLineDash(s.dash);
     polyline(ctx, X, Y, series[i]);
   });
@@ -308,19 +313,21 @@ function drawSpectrum() {
     const v = interpAt(series[i], state.h);
     if (v == null) return;
     ctx.fillStyle = css(s.color);
-    ctx.beginPath(); ctx.arc(X(state.h), Y(v), 3.5, 0, 2 * Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc(X(state.h), Y(v), s.ground ? 4 : 3.5, 0, 2 * Math.PI); ctx.fill();
   });
 
-  // legend
-  ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = css('--muted');
-  const lx = w - PAD.R;
-  ctx.fillText('odd', lx, 16);
-  ctx.strokeStyle = css('--odd'); ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
-  ctx.beginPath(); ctx.moveTo(lx - 56, 12); ctx.lineTo(lx - 30, 12); ctx.stroke();
+  // legend (top-right of the plot, where the curves never go: energies fall with h)
+  const items = [['ground state', '--curve', [], 2.5], ['even parity', '--even', [], 2], ['odd parity', '--odd', [5, 3], 2]];
+  ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'right';
+  const rx = w - PAD.R - 6;
+  items.forEach(([name, color, dash, lw], i) => {
+    const y = PAD.T + 12 + i * 15;
+    ctx.fillStyle = css('--muted');
+    ctx.fillText(name, rx - 34, y + 4);
+    ctx.strokeStyle = css(color); ctx.lineWidth = lw; ctx.setLineDash(dash);
+    ctx.beginPath(); ctx.moveTo(rx - 28, y); ctx.lineTo(rx, y); ctx.stroke();
+  });
   ctx.setLineDash([]);
-  ctx.fillText('even', lx - 66, 16);
-  ctx.strokeStyle = css('--even');
-  ctx.beginPath(); ctx.moveTo(lx - 124, 12); ctx.lineTo(lx - 98, 12); ctx.stroke();
 
   if (!data.some(Boolean)) emptyNote(f, 'computing…');
 }
